@@ -13,8 +13,18 @@
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
+#include "llvm/IR/PassManager.h"
 #include "llvm/IR/Type.h"
 #include "llvm/IR/Verifier.h"
+#include "llvm/Passes/PassBuilder.h"
+#include "llvm/Passes/StandardInstrumentations.h"
+#include "llvm/Support/TargetSelect.h"
+#include "llvm/Target/TargetMachine.h"
+#include "llvm/Transforms/InstCombine/InstCombine.h"
+#include "llvm/Transforms/Scalar.h"
+#include "llvm/Transforms/Scalar/GVN.h"
+#include "llvm/Transforms/Scalar/Reassociate.h"
+#include "llvm/Transforms/Scalar/SimplifyCFG.h"
 // The lexer returns tokens [0-255] if it is an unknown character (ASCII character), otherwise one
 // of these for known things.
 enum Token {
@@ -84,6 +94,13 @@ static std::unique_ptr<llvm::IRBuilder<>> Builder;
 static std::unique_ptr<llvm::Module> TheModule;
 static std::map<std::string, llvm::Value *> NamedValues;
 llvm::Value *LogErrorV(const char *Str);
+static std::unique_ptr<llvm::FunctionPassManager> TheFPM;
+static std::unique_ptr<llvm::LoopAnalysisManager> TheLAM;
+static std::unique_ptr<llvm::FunctionAnalysisManager> TheFAM;
+static std::unique_ptr<llvm::CGSCCAnalysisManager> TheCGAM;
+static std::unique_ptr<llvm::ModuleAnalysisManager> TheMAM;
+static std::unique_ptr<llvm::PassInstrumentationCallbacks> ThePIC;
+static std::unique_ptr<llvm::StandardInstrumentations> TheSI;
 
 // AST
 class ExprAST {
@@ -472,6 +489,9 @@ llvm::Function *FunctionAST::codegen() {
     // Validate the generated code, checking for consistency.
     llvm::verifyFunction(*TheFunction);
 
+    // Optimize the function.
+    TheFPM->run(*TheFunction, *TheFAM);
+
     return TheFunction;
   }
 
@@ -489,6 +509,33 @@ static void InitializeModule() {
 
   // Create a new builder for the module.
   Builder = std::make_unique<llvm::IRBuilder<>>(*TheContext);
+
+  // Create new pass and analysis managers.
+  TheFPM = std::make_unique<llvm::FunctionPassManager>(); 
+  TheLAM = std::make_unique<llvm::LoopAnalysisManager>(); // loop analysis
+  TheFAM = std::make_unique<llvm::FunctionAnalysisManager>();
+  TheCGAM = std::make_unique<llvm::CGSCCAnalysisManager>();
+  TheMAM = std::make_unique<llvm::ModuleAnalysisManager>();
+  ThePIC = std::make_unique<llvm::PassInstrumentationCallbacks>();
+  TheSI = std::make_unique<llvm::StandardInstrumentations>(*TheContext,/*DebugLogging*/ true);
+  TheSI->registerCallbacks(*ThePIC, TheMAM.get());
+
+  // Add transform passes.
+  // Do simple "peephole" optimizations and bit-twiddling optzns.
+  TheFPM->addPass(llvm::InstCombinePass());
+  // Reassociate expressions.
+  TheFPM->addPass(llvm::ReassociatePass());
+  // Eliminate Common SubExpressions.
+  TheFPM->addPass(llvm::GVNPass());
+  // Simplify the control flow graph (deleting unreachable blocks, etc).
+  TheFPM->addPass(llvm::SimplifyCFGPass());
+
+  // Register analysis passes used in these transform passes.
+  llvm::PassBuilder PB;
+  PB.registerModuleAnalyses(*TheMAM);
+  PB.registerFunctionAnalyses(*TheFAM);
+  PB.crossRegisterProxies(*TheLAM, *TheFAM, *TheCGAM, *TheMAM);
+
 }
 
 static void HandleDefinition() {
