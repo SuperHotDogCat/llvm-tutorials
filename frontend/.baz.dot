@@ -1,0 +1,12 @@
+digraph "CFG for 'baz' function" {
+	label="CFG for 'baz' function";
+
+	Node0x13ee41b00 [shape=record,color="#b70d28ff", style=filled, fillcolor="#b70d2870" fontname="Courier",label="{entry:\l|  %ifcond = fcmp one double %x, 0.000000e+00\l  br i1 %ifcond, label %then, label %else\l|{<s0>T|<s1>F}}"];
+	Node0x13ee41b00:s0 -> Node0x13ee41b70;
+	Node0x13ee41b00:s1 -> Node0x13ee41d10;
+	Node0x13ee41b70 [shape=record,color="#b70d28ff", style=filled, fillcolor="#bb1b2c70" fontname="Courier",label="{then:\l|  %calltmp = call double @foo()\l  br label %ifcont\l}"];
+	Node0x13ee41b70 -> Node0x13ee41cc0;
+	Node0x13ee41d10 [shape=record,color="#3d50c3ff", style=filled, fillcolor="#c32e3170" fontname="Courier",label="{else:\l|  %calltmp1 = call double @bar()\l  br label %ifcont\l}"];
+	Node0x13ee41d10 -> Node0x13ee41cc0;
+	Node0x13ee41cc0 [shape=record,color="#b70d28ff", style=filled, fillcolor="#b70d2870" fontname="Courier",label="{ifcont:\l|  %iftmp = phi double [ %calltmp, %then ], [ %calltmp1, %else ]\l  ret double %iftmp\l}"];
+}
